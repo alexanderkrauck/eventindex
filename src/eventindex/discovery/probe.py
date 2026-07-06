@@ -1,17 +1,18 @@
 """The probe (H4): the single chokepoint every discovered candidate passes.
 
-fetch -> "does this domain emit Linz-area events?" (mini model, few-shot)
--> score > 0.8 auto-register + onboard; 0.5-0.8 review queue; below: drop.
-Junk that slips through dies economically via yield_ema decay (H4.2).
+fetch -> "does this domain emit Linz-area events?" (mini model) -> score >=
+0.5 registers ALWAYS, with any doubts recorded as probe_concerns attributes
+(Alexander, 2026-07-06: when in doubt, crawl - a gym whose courses need
+membership is an attribute, not an exclusion). Below 0.5: drop. Junk that
+slips through dies economically via yield_ema decay (H4.2).
 """
 
 import logging
 import time
-from datetime import datetime
 from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 import httpx
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
 from eventindex import config, llm
@@ -19,8 +20,7 @@ from eventindex.extract.llm_text import html_to_text
 
 log = logging.getLogger("eventindex.probe")
 
-AUTO_REGISTER = 0.8
-REVIEW = 0.5
+REGISTER = 0.5
 
 
 class ProbeVerdict(BaseModel):
@@ -31,6 +31,11 @@ class ProbeVerdict(BaseModel):
     suggested_name: str
     listing_url: str | None = Field(description="best URL of the actual event/course listing page, if visible")
     entity_type: str | None = Field(description="venue|gym|verein|church|university|promoter|portal|other")
+    concerns: list[str] = Field(
+        description="doubts that lower the score, as short slugs, e.g. "
+        "membership_required, paid_courses_only, region_unclear, "
+        "low_event_signal, mostly_past_events, commercial_venue_no_program"
+    )
 
 
 def domain_of(url: str) -> str:
@@ -74,32 +79,22 @@ def probe_url(tx, url: str, discovered_via: str, job_id=None) -> dict:
     if not (verdict.emits_events and verdict.linz_area):
         score = min(score, 0.4)
 
-    if score > AUTO_REGISTER:
-        source_url = verdict.listing_url or str(resp.url)
-        row = tx.execute(
-            """
-            INSERT INTO source (name, url, kind, entity_type, tier, trust,
-                                monthly_budget_eur, discovered_via)
-            VALUES (%s, %s, 'website', %s, 3, 0.65, %s, %s)
-            ON CONFLICT (url) DO NOTHING RETURNING id
-            """,
-            (verdict.suggested_name[:120], source_url, verdict.entity_type,
-             config.MONTHLY_BUDGET_EUR_BY_TIER[3], discovered_via),
-        ).fetchone()
-        if row is None:
-            return {"outcome": "known"}
-        return {"outcome": "registered", "source_id": row["id"], "score": score}
-    if score >= REVIEW:
-        _review(url, score, verdict)
-        return {"outcome": "review", "score": score}
-    return {"outcome": "rejected", "score": score, "detail": verdict.suggested_name}
+    if score < REGISTER:
+        return {"outcome": "rejected", "score": score, "detail": verdict.suggested_name}
 
-
-def _review(url: str, score: float, verdict: ProbeVerdict) -> None:
-    review_dir = config.VAR_DIR / "review"
-    review_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(ZoneInfo(config.TIMEZONE))
-    path = review_dir / f"probes-{now:%Y-%m-%d}.md"
-    with path.open("a") as f:
-        f.write(f"- [ ] {score:.2f} {verdict.suggested_name} — {url} "
-                f"(listing: {verdict.listing_url or '?'})\n")
+    source_url = verdict.listing_url or str(resp.url)
+    row = tx.execute(
+        """
+        INSERT INTO source (name, url, kind, entity_type, tier, trust,
+                            monthly_budget_eur, discovered_via, extraction_hint)
+        VALUES (%s, %s, 'website', %s, 3, 0.65, %s, %s, %s)
+        ON CONFLICT (url) DO NOTHING RETURNING id
+        """,
+        (verdict.suggested_name[:120], source_url, verdict.entity_type,
+         config.MONTHLY_BUDGET_EUR_BY_TIER[3], discovered_via,
+         Jsonb({"probe_score": score, "probe_concerns": verdict.concerns})),
+    ).fetchone()
+    if row is None:
+        return {"outcome": "known"}
+    return {"outcome": "registered", "source_id": row["id"], "score": score,
+            "detail": ",".join(verdict.concerns)[:120]}

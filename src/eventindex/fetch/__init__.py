@@ -7,7 +7,6 @@ fetches many sources at once.
 
 import hashlib
 import time
-import urllib.robotparser
 from dataclasses import dataclass
 
 import httpx
@@ -16,12 +15,11 @@ from eventindex import config
 
 FETCHED = "fetched"
 UNCHANGED = "unchanged"
-BLOCKED = "blocked"  # robots.txt disallows
 
 
 @dataclass
 class FetchResult:
-    status: str  # fetched | unchanged | blocked
+    status: str  # fetched | unchanged
     url: str
     content: bytes = b""
     content_type: str = ""
@@ -30,22 +28,12 @@ class FetchResult:
     last_modified: str | None = None
 
 
-def _robots_allows(client: httpx.Client, url: str) -> bool:
-    parsed = httpx.URL(url)
-    robots_url = f"{parsed.scheme}://{parsed.host}/robots.txt"
-    try:
-        resp = client.get(robots_url)
-    except httpx.HTTPError:
-        return True
-    if resp.status_code >= 400:
-        return True
-    rp = urllib.robotparser.RobotFileParser()
-    rp.parse(resp.text.splitlines())
-    return rp.can_fetch(config.USER_AGENT, url)
-
-
 def fetch_source(source: dict) -> FetchResult:
-    """One conditional GET of the source URL, honoring robots.txt on tier 2-3."""
+    """One conditional GET of the source URL.
+
+    robots.txt is deliberately NOT consulted (Alexander's decision,
+    2026-07-06, DECISIONS.md changelog); politeness = honest UA + rate limit.
+    """
     headers = {"User-Agent": config.USER_AGENT}
     if source.get("http_etag"):
         headers["If-None-Match"] = source["http_etag"]
@@ -55,10 +43,7 @@ def fetch_source(source: dict) -> FetchResult:
     with httpx.Client(
         timeout=30, follow_redirects=True, headers={"User-Agent": config.USER_AGENT}
     ) as client:
-        if source["tier"] >= 2 and not _robots_allows(client, source["url"]):
-            return FetchResult(status=BLOCKED, url=source["url"])
-
-        time.sleep(config.CRAWL_DELAY_S)  # politeness gap after the robots fetch
+        time.sleep(config.CRAWL_DELAY_S)
         resp = client.get(source["url"], headers=headers)
         if resp.status_code == 304:
             return FetchResult(status=UNCHANGED, url=source["url"])

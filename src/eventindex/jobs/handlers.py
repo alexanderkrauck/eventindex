@@ -70,11 +70,6 @@ def crawl(job: dict, tx) -> list[dict]:
 
     result = fetch.fetch_source(source)
 
-    if result.status == fetch.BLOCKED:
-        tx.execute("UPDATE source SET status = 'blocked' WHERE id = %s", (source_id,))
-        _log_crawl(tx, crawl_id, job, source_id, "error", detail="robots.txt disallows")
-        return []
-
     if result.status == fetch.UNCHANGED:
         tx.execute(
             "UPDATE source SET last_crawled = now() WHERE id = %s", (source_id,)
