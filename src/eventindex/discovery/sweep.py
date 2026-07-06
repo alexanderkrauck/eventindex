@@ -122,7 +122,8 @@ MAX_SEARCHES_PER_SWEEP = 40  # matrix rotates; monthly cadence covers it all
 _PORTAL_NOISE = (
     "linztermine", "facebook.", "instagram.", "eventbrite", "meetup.com",
     "tiktok.", "youtube.", "google.", "tripadvisor", "yelp.", "linkedin.",
-    "wikipedia.", "herold.at", "firmenabc", "willhaben",
+    "wikipedia.", "herold.at", "firmenabc", "willhaben", "strava.com",
+    "tips.at", "meinbezirk.at", "nachrichten.at", "1000things",
 )
 
 

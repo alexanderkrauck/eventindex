@@ -29,7 +29,7 @@ LLM_MAX_OUTPUT_TOKENS = 16000  # event-list pages produce long array outputs
 USD_TO_EUR = 0.90  # OpenRouter reports cost in USD credits
 
 # Budgets (DECISIONS.md: enforced in code from day one)
-GLOBAL_DAILY_LLM_CAP_EUR = 5.0
+GLOBAL_DAILY_LLM_CAP_EUR = 10.0  # raised from 5.0 (Alexander, 2026-07-06)
 MONTHLY_BUDGET_EUR_BY_TIER = {1: 2.0, 2: 1.0, 3: 1.0, 4: 3.0}
 # Fallback when OpenRouter omits cost in the response: deliberately pessimistic.
 FALLBACK_EUR_PER_1K_TOKENS = 0.005

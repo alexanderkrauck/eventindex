@@ -36,7 +36,7 @@ These are settled. The coding agent follows them without revisiting (CLAUDE.md C
 - False-merge is the bad dedup error: precision@merge ≥ 0.98 against gold set, recall may lag (HURDLES §H2.3).
 - Crawl politeness: honest UA with contact email, per-domain rate limit ≥ 2s. robots.txt is deliberately ignored (Alexander's explicit sign-off, 2026-07-06: "as long as it's not behind a login wall we must always crawl"). Login walls stay out of scope.
 - Probe policy: every candidate scoring ≥ 0.5 registers automatically; doubts become `extraction_hint.probe_concerns` attributes (e.g. membership_required) instead of gating registration (Alexander, 2026-07-06: when in doubt, crawl). Junk decays economically (H4.2).
-- Budgets: every LLM/agent call runs inside a budget context; global daily cap enforced in code from day one. Initial caps: €5/day global LLM, per-source defaults per ARCHITECTURE §cost-governance.
+- Budgets: every LLM/agent call runs inside a budget context; global daily cap enforced in code from day one. Caps: €10/day global LLM (raised from €5 by Alexander 2026-07-06 during discovery ramp-up), per-source defaults per ARCHITECTURE §cost-governance.
 - v1 scope fence per CLAUDE.md - re-entry triggers per HURDLES §H7.2.
 - Metro boundary: configurable polygon, initially Linz + ~25km (Leonding, Traun, Ansfelden, Enns, Wels-fringe optional) - index generously, filter at serve time (HURDLES §H4.3).
 
