@@ -177,16 +177,41 @@ def _crawl_recipe(job: dict, tx, source: dict, crawl_id) -> list[dict]:
     return jobs
 
 
+ENRICH_BATCH_PER_REBUILD = 200
+
+
 def resolve(job: dict, tx) -> list[dict]:
     """Full canon rebuild (H0): resolve(all_claims) -> canon, atomically."""
     stats = rebuild(tx)
+    pending = stats.pop("enrich_pending", [])
     tx.execute(
         "INSERT INTO crawl_log (job_id, finished_at, status, events_found, detail) "
         "VALUES (%s, now(), 'ok', %s, %s)",
         (job["id"], stats["events"],
          f"rebuild: {stats['claims']} claims -> {stats['events']} events, "
-         f"{stats['occurrences']} occurrences, {stats['venues_created']} new venues"),
+         f"{stats['occurrences']} occurrences, {stats['venues_created']} new venues, "
+         f"{len(pending)} events awaiting enrichment"),
     )
+    return [
+        {"kind": "enrich", "payload": {"event_id": str(eid)}}
+        for eid in pending[:ENRICH_BATCH_PER_REBUILD]
+    ]
+
+
+def enrich(job: dict, tx) -> list[dict]:
+    """§8/H5: infer audience attributes for one event (cached by content)."""
+    from eventindex.enrich import apply_to_event, enrich_event
+
+    row = tx.execute(
+        "SELECT e.id, e.title, e.description, e.category, e.price_min, "
+        "e.price_max, v.name AS venue_name "
+        "FROM event e LEFT JOIN venue v ON v.id = e.venue_id WHERE e.id = %s",
+        (job["payload"]["event_id"],),
+    ).fetchone()
+    if row is None:
+        return []  # event resolved away since; the next rebuild re-enqueues
+    attributes = enrich_event(tx, row, job_id=job["id"])
+    apply_to_event(tx, row["id"], attributes)
     return []
 
 
@@ -242,6 +267,6 @@ def discover(job: dict, tx) -> list[dict]:
 
 
 HANDLERS = {
-    "crawl": crawl, "resolve": resolve,
+    "crawl": crawl, "resolve": resolve, "enrich": enrich,
     "onboard": onboard, "probe": probe, "discover": discover,
 }

@@ -578,7 +578,33 @@ def rebuild(conn, now: datetime | None = None) -> dict:
 
         _confirmation_sweep(conn, newly_negative)
         _dump_venue_review(resolver.created, now)
+        stats["enrich_pending"] = _apply_enrichment(conn)
     return stats
+
+
+def _apply_enrichment(tx) -> list:
+    """Re-apply cached inferred attributes to the fresh canon (free); return
+    event ids that still need an enrich LLM call."""
+    from eventindex.enrich import apply_to_event, content_key
+
+    rows = tx.execute(
+        """
+        SELECT e.id, e.title, e.description, e.category, v.name AS venue_name
+        FROM event e LEFT JOIN venue v ON v.id = e.venue_id
+        """
+    ).fetchall()
+    cached = {
+        r["content_key"]: r["attributes"]
+        for r in tx.execute("SELECT content_key, attributes FROM enrichment")
+    }
+    pending = []
+    for row in rows:
+        key = content_key(row)
+        if key in cached:
+            apply_to_event(tx, row["id"], cached[key])
+        else:
+            pending.append(row["id"])
+    return pending
 
 
 def _confirmation_sweep(tx, event_ids: list[uuid.UUID]) -> None:

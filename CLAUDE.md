@@ -50,7 +50,7 @@ Explicitly FORBIDDEN in v1, even as stubs, interfaces, or "preparation" (HURDLES
 - socials scraping (Instagram/Facebook/Telegram)
 - vision/PDF extraction path
 - tier-D agentic crawls
-- demographics/gender/fullness *inference* (schema columns exist; leave them null)
+- ~~demographics/gender/fullness *inference*~~ — re-entry trigger FIRED 2026-07-06 (Alexander: agent search needs rich inferred attributes). In scope per H5: priors + explicit-text-evidence only, confidence-capped, labeled estimates.
 - takedown self-service endpoint (manual email suffices; the suppression heuristics of §9b ARE in scope)
 - any frontend
 - multi-city support (no `city_id` columns "for later" - the design is city-agnostic by nature of the source registry; that is enough)
