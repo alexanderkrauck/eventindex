@@ -96,8 +96,19 @@ def schedule(conn) -> int:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--discover", action="store_true",
+                        help="also enqueue the weekly discovery sweeps")
+    args = parser.parse_args()
     with db.connect() as conn:
         print(f"enqueued {schedule(conn)} crawl jobs")
+        if args.discover:
+            with conn.transaction():
+                for channel in ("google_places", "osm", "backlinks"):
+                    enqueue(conn, "discover", {"channel": channel})
+            print("enqueued 3 discovery sweeps")
 
 
 if __name__ == "__main__":
