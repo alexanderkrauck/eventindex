@@ -18,7 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from eventindex import config, llm
 
 CONFIDENCE_CAP = 0.8
-PRIOR_CONFIDENCE = 0.3  # a prior without evidence is barely more than a guess
+# Confidence tiers (Alexander 2026-07-06: ALWAYS estimate; confidence says
+# how much it's a guess): ~0.2 pure world-knowledge guess, ~0.35 typical for
+# this kind of event, up to 0.8 with explicit textual evidence.
+GUESS_CONFIDENCE = 0.2
 
 
 class _Est(BaseModel):
@@ -81,11 +84,13 @@ def enrich_event(tx, event: dict, job_id=None) -> dict:
     prior = _prior_for(tx, event.get("category") or [])
     result = llm.complete(
         tx,
-        "Estimate audience attributes for this Linz event. START from the "
-        f"category prior and ADJUST ONLY where the text itself gives explicit "
-        f"evidence - never invent. No evidence = keep the prior with low "
-        f"confidence ({PRIOR_CONFIDENCE}). With explicit evidence, confidence "
-        f"may rise to {CONFIDENCE_CAP} at most.\n"
+        "Estimate audience attributes for this Linz event. ALWAYS give your "
+        "best estimate - null only if an attribute is truly inapplicable. "
+        "Confidence encodes how much it is a guess: "
+        f"~{GUESS_CONFIDENCE} = pure world-knowledge guess, ~0.35 = typical "
+        "for this kind of event (use the category prior if given), up to "
+        f"{CONFIDENCE_CAP} ONLY with explicit textual evidence (quote it in "
+        "evidence).\n"
         "gender_split: 0=all male .. 1=all female. newcomer_friendly: open to "
         "strangers vs members-only circles.\n\n"
         f"CATEGORY PRIOR: {prior}\n"

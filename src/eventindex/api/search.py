@@ -24,6 +24,10 @@ class SearchFilters(BaseModel):
     exclude_terms: list[str] = Field(description="words that must NOT appear in title/tags - hard guarantee")
     age_min: int | None
     age_max: int | None
+    gender_split_min: float | None = Field(
+        description="0=all male..1=all female; 'mostly women'/'at least half "
+        "women' -> 0.5; null unless the query implies audience gender mix"
+    )
     max_price: float | None
     is_free: bool | None
     kid_friendly: bool | None
@@ -80,6 +84,9 @@ def build_sql(f: SearchFilters) -> tuple[str, dict]:
     if f.age_min is not None and f.age_max is not None:
         conditions.append("e.expected_age_range && int4range(%(age_min)s, %(age_max)s, '[]')")
         params["age_min"], params["age_max"] = f.age_min, f.age_max
+    if f.gender_split_min is not None:
+        conditions.append("e.expected_gender_split >= %(gender_min)s")
+        params["gender_min"] = f.gender_split_min
     if f.is_free:
         conditions.append("e.price_min = 0")
     elif f.max_price is not None:

@@ -13,7 +13,8 @@ NOW = datetime.now(timezone.utc)
 def _filters(**kw):
     base = dict(
         from_dt=None, to_dt=None, categories=None, exclude_categories=[],
-        exclude_terms=[], age_min=None, age_max=None, max_price=None,
+        exclude_terms=[], age_min=None, age_max=None, gender_split_min=None,
+        max_price=None,
         is_free=None, kid_friendly=None, newcomer_friendly=None, outdoor=None,
         energy=None, language=None, vibe_terms=[],
     )
