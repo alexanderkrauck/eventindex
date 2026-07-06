@@ -108,7 +108,7 @@ def main() -> None:
             from eventindex import config
 
             channels = ["google_places", "osm", "backlinks"]
-            if config.BRAVE_SEARCH_API_KEY:
+            if config.GOOGLE_CSE_ID:
                 channels.append("search")
             with conn.transaction():
                 for channel in channels:

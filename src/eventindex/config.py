@@ -19,7 +19,7 @@ DATABASE_URL = os.environ.get(
 )
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-BRAVE_SEARCH_API_KEY = os.environ.get("BRAVE_SEARCH_API_KEY", "")
+GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "")  # Programmable Search Engine id
 
 # LLM (DECISIONS.md: one provider = OpenRouter; model names live here)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

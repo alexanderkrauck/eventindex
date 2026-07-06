@@ -4,7 +4,7 @@ Protocol: the coding agent appends questions here (numbered, concrete, one-sente
 
 ## Open
 
-12. **Brave Search API key** - the §4d search fan-out (the channel that finds placeless sources like howwasyourdayclub automatically) is built and wired into the Monday sweep, but needs `BRAVE_SEARCH_API_KEY` in `.env`. Free tier (2k queries/month) is ample - we use ~160/month. Sign up at brave.com/search/api, or name a different search API and I'll swap the ~20 lines.
+12. **Google Custom Search setup** - the §4d search fan-out (finds placeless sources like howwasyourdayclub automatically) is built and wired into the Monday sweep. Two clicks needed in your existing Google account: (a) enable "Custom Search API" in the same Cloud project as the Places key, (b) create a Programmable Search Engine at programmablesearchengine.google.com with "search the entire web" and put its id in `.env` as `GOOGLE_CSE_ID`. Free tier 100 queries/day; we use ~40/week.
 
 7. **Domain name** - needed by phase 4 at the latest (.ics URLs, API keys); any preference, or defer?
 9. **Embeddings provider** - §6 title matching + phase-4 semantic search need an embeddings API; OpenRouter's embeddings coverage is shaky. OK to add a direct OpenAI (or Voyage) key just for embeddings (~cents/month), or should I verify OpenRouter first? (Phase 2 shipped with trigram-only title similarity - works, logged in DECISIONS.)

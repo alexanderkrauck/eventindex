@@ -127,10 +127,11 @@ _PORTAL_NOISE = (
 
 
 def sweep_search(tx, job_id=None) -> list[str]:
-    """Brave Search API over the query matrix; rotates through the matrix
-    across sweeps (offset persisted in a tiny state row)."""
-    if not config.BRAVE_SEARCH_API_KEY:
-        raise RuntimeError("BRAVE_SEARCH_API_KEY not set (OPEN-QUESTIONS #12)")
+    """Google Custom Search over the query matrix; rotates through the
+    matrix across sweeps so the monthly cadence covers all combinations.
+    Free tier: 100 queries/day - we use MAX_SEARCHES_PER_SWEEP weekly."""
+    if not (config.GOOGLE_PLACES_API_KEY and config.GOOGLE_CSE_ID):
+        raise RuntimeError("GOOGLE_CSE_ID not set (OPEN-QUESTIONS #12)")
     matrix = [f"{term} {area}" for term in SEARCH_TERMS for area in SEARCH_AREAS]
     offset_row = tx.execute(
         "SELECT count(*) AS n FROM crawl_log WHERE detail LIKE 'discover[search]%'"
@@ -141,20 +142,20 @@ def sweep_search(tx, job_id=None) -> list[str]:
     urls: list[str] = []
     for query in queries:
         resp = httpx.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": 10, "country": "at"},
-            headers={"X-Subscription-Token": config.BRAVE_SEARCH_API_KEY,
-                     "Accept": "application/json"},
+            "https://www.googleapis.com/customsearch/v1",
+            params={"key": config.GOOGLE_PLACES_API_KEY, "cx": config.GOOGLE_CSE_ID,
+                    "q": query, "num": 10, "gl": "at", "hl": "de"},
             timeout=20,
         )
         if resp.status_code != 200:
-            log.warning("brave search %r -> %s", query, resp.status_code)
+            log.warning("google search %r -> %s %s", query, resp.status_code,
+                        resp.text[:150])
             continue
-        for hit in resp.json().get("web", {}).get("results", []):
-            url = hit.get("url", "")
+        for hit in resp.json().get("items", []):
+            url = hit.get("link", "")
             if url and not any(noise in url for noise in _PORTAL_NOISE):
                 urls.append(url)
-        time.sleep(1.1)  # free-tier rate limit
+        time.sleep(0.5)
     return urls
 
 
