@@ -215,25 +215,39 @@ def _group_claims(tx, claims: list[Claim]) -> list[dict]:
         else:
             remaining.extend(cs)
 
-    # pass 3: one-offs - block by (day, venue-cell), fingerprint fast path,
-    # then §6 weighted match across sub-groups
+    # pass 3: one-offs - block by (day, venue-cell) AND by (day, leading
+    # title words). The second key catches cross-venue duplicates where one
+    # source's claims carried the wrong/no venue (red-team 2026-07-07: the
+    # Ahoi acts existed twice, Posthof-geo vs Donaupark). Venue-mismatched
+    # pairs land in the grey zone, so the adjudicator - not geometry - makes
+    # the call; the gold set gates its precision.
     blocks: dict[tuple, dict[str, list[Claim]]] = defaultdict(lambda: defaultdict(list))
+    by_fp: dict[str, list[Claim]] = defaultdict(list)
     for c in remaining:
-        block_key = (c.starts_at.astimezone(VIENNA).date(), _venue_key(c))
-        blocks[block_key][c.fingerprint].append(c)
+        day = c.starts_at.astimezone(VIENNA).date()
+        blocks[("v", day, _venue_key(c))][c.fingerprint].append(c)
+        prefix = " ".join(normalize_title(c.title).split()[:2])
+        if prefix:
+            blocks[("t", day, prefix)][c.fingerprint].append(c)
+        by_fp[c.fingerprint].append(c)
 
+    parent = {fp: fp for fp in by_fp}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    compared: set = set()
     for block in blocks.values():
         fps = sorted(block.keys())
-        parent = {fp: fp for fp in fps}
-
-        def find(x):
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
         for i in range(len(fps)):
             for j in range(i + 1, len(fps)):
+                pair = (fps[i], fps[j])
+                if pair in compared:
+                    continue
+                compared.add(pair)
                 a, b = block[fps[i]][0], block[fps[j]][0]
                 score = match.pair_score(a.candidate(), b.candidate())
                 verdict = match.classify(score)
@@ -243,14 +257,14 @@ def _group_claims(tx, claims: list[Claim]) -> list[dict]:
                 if verdict == match.MERGE:
                     parent[find(fps[i])] = find(fps[j])
 
-        merged: dict[str, list[Claim]] = defaultdict(list)
-        for fp in fps:
-            merged[find(fp)].extend(block[fp])
-        for cs in merged.values():
-            key = min(c.fingerprint for c in cs)  # deterministic group key
-            groups[key] = {
-                "key": key, "claims": cs, "recurrence": None, "rrule_raw": None,
-            }
+    merged: dict[str, list[Claim]] = defaultdict(list)
+    for fp in by_fp:
+        merged[find(fp)].extend(by_fp[fp])
+    for cs in merged.values():
+        key = min(c.fingerprint for c in cs)  # deterministic group key
+        groups[key] = {
+            "key": key, "claims": cs, "recurrence": None, "rrule_raw": None,
+        }
     return _merge_shared_fingerprints(list(groups.values()))
 
 
@@ -452,7 +466,8 @@ def _occurrences_for(tx, g: dict, holidays, now: datetime) -> tuple[list, bool, 
     """Returns ([(starts, ends)], tentative, rrule_text)."""
     rec = g["recurrence"]
     if rec is not None:
-        pairs = recurrence.expand(rec, holidays, now=now)
+        anchor = min(c.starts_at for c in g["claims"])
+        pairs = recurrence.expand(rec, holidays, now=now, anchor=anchor)
         rule = recurrence.compile_rrule(
             rec, pairs[0][0] if pairs else now
         )

@@ -18,6 +18,10 @@ from Linz, Austria). Today is {today}.
 Rules:
 - Only actual events/courses/happenings with a concrete date. Skip navigation, \
 news without dates, and past events.
+- title must identify the SPECIFIC act/program, never just the venue or a \
+generic word ("Sandburg Events" is worthless). For series/festival slots, \
+include the act: "Klassik am Dom: Tom Jones". If a listing gives no \
+identifiable title at all, skip it.
 - starts_at/ends_at: ISO 8601. If no time given, use the date alone (YYYY-MM-DD). \
 Do not invent times, prices, or venues - omit unknown fields (null).
 - category: one of {categories}, or null.

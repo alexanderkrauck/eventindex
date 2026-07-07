@@ -54,6 +54,19 @@ def test_biweekly_keeps_phase_anchored_at_valid_from():
     assert days[:3] == [date(2026, 9, 15), date(2026, 9, 29), date(2026, 10, 13)]
 
 
+def test_biweekly_without_valid_from_phase_locks_to_anchor_not_now():
+    """Regression (STWST Treibgut, 2026-07-07): without valid_from, an
+    interval-2 rule must take its phase from the claim's real occurrence,
+    not from whenever the rebuild happens to run."""
+    rec = _rec(freq="weekly", weekday="SA", interval=2, valid_from=None,
+               except_holidays=[])
+    # rebuild runs Mon Sep 21; the known real occurrence was Sat Sep 19
+    now = datetime(2026, 9, 21, tzinfo=VIENNA)
+    anchor = datetime(2026, 9, 19, 16, 0, tzinfo=VIENNA)
+    days = [s.date() for s, _ in expand(rec, HOLIDAYS, now=now, anchor=anchor)]
+    assert days[:2] == [date(2026, 10, 3), date(2026, 10, 17)]  # NOT Sep 26/Oct 10
+
+
 def test_valid_until_cuts_off():
     rec = _rec(valid_from="2026-09-15", valid_until="2026-09-30")
     now = datetime(2026, 9, 14, tzinfo=VIENNA)

@@ -88,13 +88,24 @@ def expand(
     rec: Recurrence,
     holidays: dict[str, list[tuple[date, date]]],
     now: datetime | None = None,
+    anchor: datetime | None = None,
 ) -> list[tuple[datetime, datetime | None]]:
-    """Concrete (starts_at, ends_at) pairs for the next EXPANSION_WEEKS."""
+    """Concrete (starts_at, ends_at) pairs for the next EXPANSION_WEEKS.
+
+    anchor: a known real occurrence (the claim's starts_at). Without it, an
+    interval>1 rule that lacks valid_from would phase-lock to `now` and can
+    land on the wrong week (bit us live: STWST biweekly, off by one week).
+    """
     now = now or datetime.now(VIENNA)
     horizon = now + timedelta(weeks=EXPANSION_WEEKS)
     at = _parse_time(rec.time)
 
-    valid_from = date.fromisoformat(rec.valid_from) if rec.valid_from else now.date()
+    if rec.valid_from:
+        valid_from = date.fromisoformat(rec.valid_from)
+    elif anchor is not None:
+        valid_from = anchor.astimezone(VIENNA).date()
+    else:
+        valid_from = now.date()
     valid_until = date.fromisoformat(rec.valid_until) if rec.valid_until else None
 
     if rec.freq == "irregular":

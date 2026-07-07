@@ -48,6 +48,27 @@ def is_upcoming(payload: dict) -> bool:
     return dt >= datetime.now(timezone.utc) - timedelta(days=1)
 
 
+_GENERIC_TITLE_WORDS = {
+    "event", "events", "veranstaltung", "veranstaltungen", "termin",
+    "termine", "programm", "kalender", "highlights",
+}
+
+
+def is_placeholder_title(title: str, source_name: str) -> bool:
+    """Red-team finding 2026-07-07: venue programs collapsing into rows like
+    "Sandburg Events" fake coverage while losing every event identity. A
+    title is a placeholder when, after removing generic event-words, nothing
+    remains but (parts of) the source's own name."""
+    from eventindex.resolve.fingerprint import normalize_title
+
+    words = set(normalize_title(title).split())
+    if not words:
+        return True
+    source_words = set(normalize_title(source_name).split())
+    meaningful = words - _GENERIC_TITLE_WORDS - source_words
+    return not meaningful
+
+
 def extract(source: dict, result, tx, job_id=None) -> tuple[str, list[dict]]:
     """Run the cascade. Returns (method, claim payloads), past events dropped."""
     ct = result.content_type.lower()
@@ -78,4 +99,12 @@ def extract(source: dict, result, tx, job_id=None) -> tuple[str, list[dict]]:
                 tx, llm_text.html_to_text(result.content), source, job_id=job_id
             )
 
-    return method, [c for c in claims if is_upcoming(c)]
+    kept = []
+    for c in claims:
+        if not is_upcoming(c):
+            continue
+        title = c.get("title", {}).get("value") or ""
+        if is_placeholder_title(title, source.get("name") or ""):
+            continue
+        kept.append(c)
+    return method, kept
