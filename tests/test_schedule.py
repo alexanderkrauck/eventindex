@@ -1,6 +1,8 @@
 from psycopg.types.json import Jsonb
 
-from eventindex.jobs.schedule import completeness_escalation, park_dormant, schedule
+from eventindex.jobs.schedule import (
+    completeness_escalation, enqueue_nightly_qa, park_dormant, schedule,
+)
 
 
 def _source(conn, name, last_crawled_sql, status="active", interval="1 day",
@@ -61,6 +63,16 @@ def test_capped_feed_gets_companion_site_and_agent_once(conn):
     assert "completeness" in onboard["payload"]["reason"]
     # one-shot: second run does nothing
     assert completeness_escalation(conn) == 0
+
+
+def test_nightly_qa_enqueued_once_per_day(conn):
+    assert enqueue_nightly_qa(conn) is True
+    conn.commit()
+    assert enqueue_nightly_qa(conn) is False
+    n = conn.execute(
+        "SELECT count(*) AS n FROM jobs WHERE kind = 'qa_check'"
+    ).fetchone()
+    assert n["n"] == 1
 
 
 def test_yieldless_sources_park_dormant_with_monthly_pulse(conn):

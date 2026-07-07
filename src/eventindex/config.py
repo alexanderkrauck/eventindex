@@ -65,6 +65,10 @@ WORKER_IDLE_POLL_S = 5
 USER_AGENT = "EventIndexBot/0.1 (+alexander.krauck@gmail.com)"
 CRAWL_DELAY_S = 2.0  # DECISIONS.md: per-domain rate limit >= 2s
 
+# QA loop (§12: nightly random re-verification feeding source trust)
+QA_NIGHTLY_SAMPLE = 20
+QA_TRUST_ALPHA = 0.1  # trust <- (1-a)*trust + a*accuracy per check
+
 # Digest
 DIGEST_DIR = VAR_DIR / "digests"
 DEAD_MAN_HOURS = 48

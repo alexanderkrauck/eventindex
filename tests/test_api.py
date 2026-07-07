@@ -88,6 +88,61 @@ def test_event_detail_404(client):
     assert client.get(f"/v1/events/{uuid.uuid4()}").status_code == 404
 
 
+def test_api_key_gate_with_bootstrap_open(conn, client):
+    assert client.get("/v1/occurrences").status_code == 200  # no keys -> open
+    conn.execute("INSERT INTO api_key (key, name) VALUES ('sekrit', 't')")
+    conn.commit()
+    assert client.get("/v1/occurrences").status_code == 401
+    assert client.get(
+        "/v1/occurrences", headers={"X-API-Key": "sekrit"}
+    ).status_code == 200
+    # query-param form: what makes .ics calendar subscriptions workable
+    assert client.get(
+        "/v1/feed.ics", params={"api_key": "sekrit"}
+    ).status_code == 200
+
+
+def test_feed_ics_serves_filtered_calendar(client):
+    resp = client.get("/v1/feed.ics")
+    assert resp.headers["content-type"].startswith("text/calendar")
+    assert b"BEGIN:VEVENT" in resp.content
+    assert b"Nearby Concert" in resp.content
+    assert b"Already Happened" not in resp.content  # same from-now default
+    only_music = client.get("/v1/feed.ics", params={"category": "learning"})
+    assert b"Unknown Location Talk" in only_music.content
+    assert b"Nearby Concert" not in only_music.content
+
+
+def test_report_enqueues_qa_check(conn, client):
+    oid = conn.execute("SELECT id FROM occurrence LIMIT 1").fetchone()["id"]
+    resp = client.post(
+        "/v1/reports",
+        json={"occurrence_id": str(oid), "reason": "cancelled", "note": "war abgesagt"},
+    )
+    assert resp.status_code == 202
+    job = conn.execute("SELECT payload FROM jobs WHERE kind = 'qa_check'").fetchone()
+    assert job["payload"]["occurrence_id"] == str(oid)
+    assert conn.execute("SELECT count(*) AS n FROM report").fetchone()["n"] == 1
+    missing = client.post(
+        "/v1/reports", json={"occurrence_id": str(uuid.uuid4()), "reason": "wrong"}
+    )
+    assert missing.status_code == 404
+
+
+def test_changes_keyset_cursor_walks_everything_once(client):
+    seen, cursor = [], None
+    for _ in range(10):
+        params = {"limit": 2}
+        if cursor:
+            params["since"] = cursor
+        body = client.get("/v1/changes", params=params).json()
+        seen += [e["id"] for e in body["events"]]
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    assert len(seen) == len(set(seen)) == 5
+
+
 def test_staleness_decay_is_computed_at_query_time(conn):
     event_id = _add_event(conn, "Zombie Stammtisch", starts=NOW + timedelta(days=1))
     # confirmed a month ago, weekly cadence -> 0.9^4 ≈ 0.59 effective

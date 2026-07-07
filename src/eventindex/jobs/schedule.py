@@ -91,6 +91,23 @@ def completeness_escalation(conn) -> int:
     return escalated
 
 
+def enqueue_nightly_qa(conn) -> bool:
+    """One qa_check sample per Vienna day (§12: the QA loop is the
+    highest-leverage investment - every aggregator rots without it)."""
+    from eventindex import config
+
+    exists = conn.execute(
+        "SELECT 1 FROM jobs WHERE kind = 'qa_check' AND created_at >= "
+        "date_trunc('day', now() AT TIME ZONE %s) AT TIME ZONE %s",
+        (config.TIMEZONE, config.TIMEZONE),
+    ).fetchone()
+    if exists:
+        return False
+    with conn.transaction():
+        enqueue(conn, "qa_check", {"sample": config.QA_NIGHTLY_SAMPLE})
+    return True
+
+
 def schedule(conn) -> int:
     flagged = completeness_escalation(conn)
     if flagged:
@@ -98,6 +115,8 @@ def schedule(conn) -> int:
     parked = park_dormant(conn)
     if parked:
         print(f"parked {parked} yieldless sources as dormant")
+    if enqueue_nightly_qa(conn):
+        print("enqueued the daily qa_check sample")
     rows = conn.execute(
         """
         WITH proximate AS (

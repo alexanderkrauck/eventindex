@@ -8,6 +8,7 @@ phase 0.
 """
 
 import uuid
+from typing import Literal
 
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict
@@ -279,6 +280,133 @@ def probe(job: dict, tx) -> list[dict]:
     return []
 
 
+QA_SOURCE_URL = "internal://qa-verifier"
+
+
+class QAVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outcome: Literal["confirmed", "cancelled", "not_found"]
+
+
+def _qa_source_id(tx):
+    """The QA verifier is a claim author like any source (H0: canon writes go
+    through claims), but never scheduled (status 'internal')."""
+    row = tx.execute("SELECT id FROM source WHERE url = %s", (QA_SOURCE_URL,)).fetchone()
+    if row:
+        return row["id"]
+    return tx.execute(
+        "INSERT INTO source (name, url, kind, tier, trust, status) "
+        "VALUES ('QA verifier', %s, 'internal', 1, 0.9, 'internal') RETURNING id",
+        (QA_SOURCE_URL,),
+    ).fetchone()["id"]
+
+
+def _qa_verify(tx, occ: dict, job_id) -> str:
+    """Re-fetch the event's URL and ask a mini model whether the occurrence
+    still stands. Checking is easier than extracting (H1.1 logic)."""
+    import time
+
+    import httpx
+
+    from eventindex.extract.llm_text import html_to_text
+    from eventindex.resolve.fingerprint import VIENNA
+
+    try:
+        with httpx.Client(
+            timeout=30, follow_redirects=True,
+            headers={"User-Agent": config.USER_AGENT},
+        ) as client:
+            time.sleep(config.CRAWL_DELAY_S)
+            resp = client.get(occ["url"])
+            resp.raise_for_status()
+    except httpx.HTTPError:
+        return "not_found"
+
+    local = occ["starts_at"].astimezone(VIENNA)
+    return llm.complete(
+        tx,
+        f"Below is the text of {occ['url']}.\n"
+        f"Does this page still show the event '{occ['title']}' taking place "
+        f"on {local:%Y-%m-%d} (around {local:%H:%M})?\n"
+        "Answer 'confirmed' if the event on that date is still listed as "
+        "happening; 'cancelled' if it is explicitly cancelled or moved "
+        "(abgesagt, verschoben, entfällt, ausverkauft is NOT cancelled); "
+        "'not_found' if the event or that date no longer appears.\n\n"
+        f"PAGE TEXT:\n{html_to_text(resp.content)[:8000]}",
+        QAVerdict,
+        job_id=job_id,
+    ).outcome
+
+
+def qa_check(job: dict, tx) -> list[dict]:
+    """QA loop (§12): re-verify occurrences against their event URL, feed
+    source trust, and flip cancellations - via a claim, never by editing
+    canon (H0)."""
+    payload = job["payload"]
+    base_sql = (
+        "SELECT o.id, o.event_id, o.starts_at, e.title, e.url "
+        "FROM occurrence o JOIN event e ON e.id = o.event_id "
+    )
+    if payload.get("occurrence_id"):
+        occs = tx.execute(
+            base_sql + "WHERE o.id = %s AND e.url IS NOT NULL",
+            (payload["occurrence_id"],),
+        ).fetchall()
+    else:
+        occs = tx.execute(
+            base_sql + "WHERE o.starts_at BETWEEN now() AND now() + interval "
+            "'14 days' AND o.status = 'scheduled' AND NOT o.projected "
+            "AND e.url IS NOT NULL ORDER BY random() LIMIT %s",
+            (payload.get("sample", config.QA_NIGHTLY_SAMPLE),),
+        ).fetchall()
+
+    qa_sid = _qa_source_id(tx)
+    counts = {"confirmed": 0, "cancelled": 0, "not_found": 0}
+    for occ in occs:
+        outcome = _qa_verify(tx, occ, job["id"])
+        counts[outcome] += 1
+        accuracy = 1.0 if outcome == "confirmed" else 0.0
+        tx.execute(
+            "UPDATE source SET trust = trust * (1 - %(a)s) + %(a)s * %(acc)s "
+            "WHERE id != %(qa)s AND id IN ("
+            "  SELECT DISTINCT c.source_id FROM identity i "
+            "  JOIN event_claim c ON c.fingerprint = i.fingerprint "
+            "  WHERE i.event_id = %(eid)s)",
+            {"a": config.QA_TRUST_ALPHA, "acc": accuracy, "qa": qa_sid,
+             "eid": occ["event_id"]},
+        )
+        if outcome == "confirmed":
+            tx.execute(
+                "UPDATE occurrence SET last_confirmed_at = now() WHERE id = %s",
+                (occ["id"],),
+            )
+        elif outcome == "cancelled":
+            fp = tx.execute(
+                "SELECT fingerprint FROM identity WHERE event_id = %s "
+                "ORDER BY fingerprint LIMIT 1", (occ["event_id"],),
+            ).fetchone()
+            if fp:
+                tx.execute(
+                    "INSERT INTO event_claim (source_id, fingerprint, payload) "
+                    "VALUES (%s, %s, %s)",
+                    (qa_sid, fp["fingerprint"], Jsonb({
+                        "title": {"value": occ["title"], "confidence": 0.9},
+                        "starts_at": {"value": occ["starts_at"].isoformat(),
+                                      "confidence": 0.9},
+                        "status": {"value": "cancelled", "confidence": 0.9},
+                    })),
+                )
+
+    tx.execute(
+        "INSERT INTO crawl_log (job_id, finished_at, status, events_found, detail) "
+        "VALUES (%s, now(), 'ok', %s, %s)",
+        (job["id"], len(occs),
+         f"qa: checked={len(occs)} confirmed={counts['confirmed']} "
+         f"cancelled={counts['cancelled']} not_found={counts['not_found']}"),
+    )
+    return [{"kind": "resolve", "payload": {}}] if counts["cancelled"] else []
+
+
 def discover(job: dict, tx) -> list[dict]:
     from eventindex.discovery.sweep import discover as run_sweep
 
@@ -295,4 +423,5 @@ def discover(job: dict, tx) -> list[dict]:
 HANDLERS = {
     "crawl": crawl, "resolve": resolve, "enrich": enrich,
     "onboard": onboard, "probe": probe, "discover": discover,
+    "qa_check": qa_check,
 }

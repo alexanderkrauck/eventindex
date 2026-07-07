@@ -42,14 +42,16 @@ Confidence wiring end-to-end (source trust EMA, compound event confidence, stale
 **Done when:** (a) "was geht heute abend, nicht techno, unter 20€" via `/v1/search` returns sensible ranked results with zero excluded-category leaks over a 50-query test set; (b) Alexander subscribes to a filtered .ics and events appear in his calendar; (c) a `/reports` submission demonstrably lowers a source's trust; (d) digest shows the QA loop running nightly.
 **[human]:** use it for a week; the feedback from real usage IS the phase-4 acceptance test.
 
+*Status 2026-07-07: all phase-4 components shipped (qa_check, .ics, /reports, /changes, api keys, §9b suppression, 50-query gate at tests/test_search_live.py). Evidence pending budget reset: (a) run `uv run pytest -m live tests/test_search_live.py`, (c)+(d) flow from tonight's queue. (b) needs Alexander: subscribe to /v1/feed.ics?api_key=... Embeddings for ranking remain deliberately unbuilt (agent-search decision 2026-07-06: vibe-term overlap ranks; add pgvector ranking only if real usage shows it lacking). Rate limits deferred until a second consumer exists.*
+
 ## After v1 (do not touch until trigger fires - HURDLES §H7.2)
 
 socials (trigger: ≥20 Instagram-only sources identified) · vision/PDF (≥10 high-value PDF sources queued) · tier-D (≥5 sources defeat recipes) · demographics inference (product demand) · takedown self-service (first real request) · frontend (v1 proves usage via API/.ics first) · multi-city (Linz coverage bar demonstrably met).
 
 ## Red-team backlog (2026-07-07, two audit rounds - ordered by leverage)
 
-1. **Implicit-series forward projection** - THE structural gap. linztermine's XML export is a hard 7-day rolling window (verified: no date params work), so all aggregator-relayed weeklies (Sommerkino, TCG, Flohmärkte, Musikpavillon) truncate at now+7d. Design: when >=3 weekly repetitions of (title, venue, weekday, time) accumulate across crawls, synthesize a Recurrence and expand 8 weeks; verify-call gates it. Also: parse "jeden Mittwoch 3.6.-26.8." free-text in aggregator descriptions into the recurrence schema.
-2. **Marquee duplication regressed** - multi-source variant titles (Pretty Woman ×3-4/day, Grossstadtgeflüster ×3). Adjudicator declines thin-evidence merges (precision-first, per design) - next tool: mid-model escalation for twice-grey pairs (§model-routing) + venue-alias hygiene.
+1. ~~**Implicit-series forward projection**~~ SHIPPED 2026-07-07 (resolve/projection.py, occurrence.projected, text_recurrence cache; horizon-gated, self-expiring). Series need >=3 observed dates, so the day-curve lift compounds as claim history accumulates - watch `SELECT count(*) FROM occurrence WHERE projected`.
+2. ~~**Marquee duplication regressed**~~ SHIPPED 2026-07-07 (evidence-rich adjudicator + mid escalation at score>=0.65 + venue aliasing; 342 stale mini "different" verdicts invalidated). Verify after the next funded rebuild: the Mariendom/Taschenlampen/Senso pairs must merge; gold precision gate stays blocking.
 3. **Registered != yielding**: digest should flag sources with 0 claims after N crawls (HWYD Wix, strom.stwst.at). Also: sub-page probes for known domains with low yield (posthof.at/festivals case).
 4. **Extraction quality**: times lost to 00:00 when source states them (Chet Faker 19:30); "F.I.T.C.: Pflasterspektakel Tag 1" mislabeling; Einlass/Beginn rule shipped but old claims persist until re-crawl.
 5. **Vision/PDF fence trigger evidence**: Aktiv-Tage Linz (city Ferienprogramm) is a PDF brochure; count such high-value PDF sources toward the >=10 trigger (currently ~2).

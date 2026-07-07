@@ -30,3 +30,15 @@ def test_dead_man_when_never_crawled():
     text = render(_stats(None), NOW)
     assert "DEAD MAN'S SWITCH" in text
     assert "last: never" in text
+
+
+def test_qa_section_renders_check_results():
+    stats = _stats(NOW) | {
+        "qa": [{"detail": "qa: checked=20 confirmed=18 cancelled=1 not_found=1"}]
+    }
+    text = render(stats, NOW)
+    assert "qa: checked=20 confirmed=18" in text
+
+
+def test_qa_section_flags_silence():
+    assert "QA loop did not run" in render(_stats(NOW), NOW)

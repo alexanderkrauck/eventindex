@@ -27,11 +27,16 @@ def gather_stats(conn) -> dict:
     last_success = conn.execute(
         "SELECT max(started_at) AS ts FROM crawl_log WHERE status IN ('ok', 'unchanged')"
     ).fetchone()["ts"]
+    qa = conn.execute(
+        "SELECT detail FROM crawl_log WHERE detail LIKE 'qa:%' "
+        "AND started_at >= now() - interval '24 hours' ORDER BY started_at"
+    ).fetchall()
     return {
         "crawls": crawls,
         "spend": spend,
         "failed_jobs": failed_jobs,
         "last_success": last_success,
+        "qa": qa,
     }
 
 
@@ -69,6 +74,13 @@ def render(stats: dict, now: datetime) -> str:
             lines.append(f"  {r['kind']}: {r['n']}")
     else:
         lines.append("  none")
+
+    lines.append("qa checks (24h):")
+    if stats.get("qa"):
+        for r in stats["qa"]:
+            lines.append(f"  {r['detail']}")
+    else:
+        lines.append("  none - QA loop did not run")
 
     return "\n".join(lines) + "\n"
 
