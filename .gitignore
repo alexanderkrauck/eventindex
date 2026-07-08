@@ -1,7 +1,16 @@
 .venv/
 __pycache__/
 *.pyc
-.env
-var/
 .pytest_cache/
+.ruff_cache/
 dist/
+
+# secrets & local/business state - never commit
+.env
+private/
+var/
+*.dump
+nohup.out
+*.log
+.DS_Store
+.claude/
