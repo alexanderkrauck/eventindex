@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 
 import psycopg
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from eventindex import config, llm
 from eventindex.budget import BudgetExceeded
@@ -202,6 +202,58 @@ def _spent_on_job(tx, job_id) -> float:
     return float(row["s"])
 
 
+class YieldEstimate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_events_per_crawl: int
+    expects_success: bool = Field(description="still expect to produce a validating recipe")
+    rationale: str
+
+
+def _extended_rings(expected_events: int) -> tuple[float, int, int]:
+    """Deterministic value gate: the allowance scales linearly with the
+    agent's expected yield, never below the base rings, never past the hard
+    rings. 20 expected events = base; ~85+ = the full hard allowance."""
+    cap = min(config.ONBOARD_HARD_CAP_EUR,
+              max(config.ONBOARD_SESSION_CAP_EUR,
+                  expected_events * config.ONBOARD_EUR_PER_EXPECTED_EVENT))
+    scale = cap / config.ONBOARD_SESSION_CAP_EUR
+    turns = min(config.ONBOARD_HARD_MAX_TURNS,
+                round(config.ONBOARD_MAX_TURNS * scale))
+    wall = min(config.ONBOARD_HARD_WALL_CLOCK_S,
+               round(config.ONBOARD_WALL_CLOCK_S * scale))
+    return cap, turns, wall
+
+
+def _value_checkpoint(tx, messages, session, model, source, job_id):
+    """Ask the agent - inside the same (prefix-cached) conversation - whether
+    finishing is worth more budget. Returns the new rings. Fail-closed: an
+    unparseable answer or expected failure keeps the base rings."""
+    messages.append({"role": "user", "content":
+        "CHECKPOINT - your session allowance is nearly exhausted. Answer with "
+        "ONLY a JSON object, no prose, no code fences: "
+        '{"expected_events_per_crawl": <int>, "expects_success": <bool>, '
+        '"rationale": "<one sentence>"}. expected_events_per_crawl = how many '
+        "distinct upcoming events a working recipe for THIS site would "
+        "realistically yield per crawl; expects_success = whether you still "
+        "expect to emit a recipe that passes self-validation."})
+    msg = llm.chat(tx, messages, model=model, source_id=source["id"], job_id=job_id)
+    content = (msg.content or "").strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    messages.append({"role": "assistant", "content": msg.content or ""})
+    base = (config.ONBOARD_SESSION_CAP_EUR, config.ONBOARD_MAX_TURNS,
+            config.ONBOARD_WALL_CLOCK_S)
+    try:
+        est = YieldEstimate.model_validate_json(content)
+    except ValidationError:
+        session.record("value_checkpoint", {}, "unparseable estimate -> base rings")
+        return base
+    session.record("value_checkpoint", {},
+                   f"expected={est.expected_events_per_crawl} "
+                   f"success={est.expects_success} | {est.rationale[:200]}")
+    if not est.expects_success or est.expected_events_per_crawl <= 0:
+        return base
+    return _extended_rings(est.expected_events_per_crawl)
+
+
 def _self_validate(recipe: Recipe, sample_titles: list[str], source, tx, job_id,
                    min_horizon_days: int | None = None):
     """H3.2: run the fresh recipe through the real interpreter; extracted
@@ -265,12 +317,30 @@ def onboard_source(tx, source: dict, job_id, model: str,
     ]
     recipe_result: Recipe | None = None
     outcome = "exhausted"
+    cap_eur = config.ONBOARD_SESSION_CAP_EUR
+    max_turns = config.ONBOARD_MAX_TURNS
+    wall_s = config.ONBOARD_WALL_CLOCK_S
+    checkpointed = False
+    turns = 0
     try:
-        for _ in range(config.ONBOARD_MAX_TURNS):
-            if time.monotonic() - started > config.ONBOARD_WALL_CLOCK_S:
+        while turns < max_turns:
+            turns += 1
+            elapsed = time.monotonic() - started
+            spent = _spent_on_job(tx, job_id) - spent_before
+            if not checkpointed and (
+                turns >= max_turns - 1 or elapsed > 0.8 * wall_s
+                or spent > 0.8 * cap_eur
+            ):
+                # approaching a base ring: one value checkpoint may extend
+                # the allowance (deterministic gate, hard rings above)
+                checkpointed = True
+                cap_eur, max_turns, wall_s = _value_checkpoint(
+                    tx, messages, session, model, source, job_id
+                )
+            if elapsed > wall_s:
                 outcome = "wall_clock"
                 break
-            if _spent_on_job(tx, job_id) - spent_before > config.ONBOARD_SESSION_CAP_EUR:
+            if spent > cap_eur:
                 outcome = "budget"
                 break
             msg = llm.chat(tx, messages, tools=_tools(), model=model,

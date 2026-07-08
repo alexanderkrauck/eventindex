@@ -49,10 +49,19 @@ COMPLETENESS_MIN_YIELD = 10       # only productive sources can be "capped"
 HORIZON_CAPPED_DAYS = 10          # yield never reaching past this = suspicious
 RECIPE_MIN_HORIZON_DAYS = 21      # escalated recipes must reach at least this
 
-# Onboarding agent (§5b / §harness): budget enforced by the loop, not the model
+# Onboarding agent (§5b / §harness): budget enforced by the loop, not the model.
+# Base rings; when a session approaches one, a value checkpoint (Alexander
+# 2026-07-08) asks the agent for its expected yield IN the cached conversation
+# and a deterministic gate scales the rings - worth is expected_events x
+# EUR_PER_EXPECTED_EVENT, clamped to the hard rings. The model provides
+# evidence, the code decides; a lying model still can't pass the hard rings.
 ONBOARD_MAX_TURNS = 25
 ONBOARD_SESSION_CAP_EUR = 0.60  # H3.5: one-time per source; hard sites cost more
-ONBOARD_WALL_CLOCK_S = 600
+ONBOARD_WALL_CLOCK_S = 1000  # raised from 600 (Alexander 2026-07-08)
+ONBOARD_EUR_PER_EXPECTED_EVENT = 0.03  # one-time spend justified per expected event/crawl
+ONBOARD_HARD_CAP_EUR = 2.50
+ONBOARD_HARD_MAX_TURNS = 60
+ONBOARD_HARD_WALL_CLOCK_S = 1800
 TRAJECTORY_DIR = VAR_DIR / "trajectories"
 
 # Worker
