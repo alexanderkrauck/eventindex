@@ -28,6 +28,8 @@ confidence-scored. Machine-readable spec: `/openapi.json` (RFC 9727 catalog:
 ## Querying (use this, it costs the index nothing)
 
 `POST /v1/query?limit=20` - body: any subset of the filter fields (JSON).
+Browse-only agent (can only GET)? Same filters as query params:
+`GET /v1/query?include_terms=lauf,run&newcomer_friendly=true&importance=newcomer_friendly:1.0&limit=10`
 **No API key needed for reads** (query, occurrences, events/{id}, feed.ics,
 changes) - anonymous access is rate-limited to 60 req/min per IP; a key
 (header `X-API-Key` or `?api_key=`) lifts the limit. Keys are required only

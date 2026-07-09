@@ -266,3 +266,21 @@ def test_query_rows_carry_venue(conn, client):
     concert = next(r for r in rows if r["title"] == "Nearby Concert")
     assert concert["venue_name"] == "Posthof"
     assert concert["venue_address"] == "Posthofstr. 43"
+
+
+def test_query_get_variant_for_browse_only_agents(conn, client):
+    """ChatGPT's browsing tool can only GET (found live, 2026-07-09)."""
+    resp = client.get(
+        "/v1/query",
+        params={"categories": "music", "kid_friendly": "true",
+                "importance": "kid_friendly:0.8", "limit": 5},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [o["title"] for o in data["occurrences"]] != []
+    assert data["parsed_filters"]["categories"] == ["music"]
+    assert data["importance"] == {"kid_friendly": 0.8}
+    assert client.get("/v1/query", params={"bogus": "1"}).status_code == 422
+    assert client.get(
+        "/v1/query", params={"importance": "kid_friendly"}
+    ).status_code == 422

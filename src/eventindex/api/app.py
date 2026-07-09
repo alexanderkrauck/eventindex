@@ -49,7 +49,7 @@ _OPEN_PATHS = {"/llms.txt", "/.well-known/api-catalog", "/privacy"}
 # pure Postgres by design) but rate-limited per IP. /v1/search stays keyed
 # because it spends OUR llm budget per call; /v1/reports because it writes.
 _PUBLIC_READS = {
-    ("GET", "/v1/occurrences"), ("POST", "/v1/query"),
+    ("GET", "/v1/occurrences"), ("POST", "/v1/query"), ("GET", "/v1/query"),
     ("GET", "/v1/feed.ics"), ("GET", "/v1/changes"),
 }
 PUBLIC_READ_RATE_PER_MIN = 60
@@ -363,6 +363,43 @@ def search(q: str, limit: int = Query(20, le=100, ge=1)):
     with db.connect() as conn:
         filters = parse_query(conn, q)  # spend is ledgered on its own connection
     return _run_filters(filters, limit)
+
+
+@app.get("/v1/query")
+def query_get(request: Request, limit: int = Query(20, le=100, ge=1)):
+    """GET variant of /v1/query for browse-only agents (ChatGPT's browsing
+    tool cannot POST). Same filters as query params: lists comma-separated
+    (include_terms=lauf,run), importance as importance=attr:0.9,attr2:0.4.
+    """
+    from eventindex.api.search import FILTER_DEFAULTS
+
+    body: dict = {}
+    importance: dict = {}
+    for name, raw in request.query_params.items():
+        if name in ("limit", "api_key"):
+            continue
+        if name == "importance":
+            try:
+                importance = {
+                    k: float(v) for k, v in
+                    (pair.split(":", 1) for pair in raw.split(",") if pair)
+                }
+            except ValueError:
+                raise HTTPException(422, "importance format: attr:0.9,attr2:0.4")
+        elif name not in FILTER_DEFAULTS:
+            raise HTTPException(422, f"unknown filter '{name}'")
+        elif isinstance(FILTER_DEFAULTS[name], list) or name == "categories":
+            body[name] = [v.strip() for v in raw.split(",") if v.strip()]
+        elif raw.lower() in ("true", "false"):
+            body[name] = raw.lower() == "true"
+        else:
+            body[name] = raw
+    body["importance"] = importance
+    try:
+        parsed = QueryBody(**body)
+    except ValidationError as e:
+        raise HTTPException(422, f"invalid filters: {e}")
+    return query(parsed, limit)
 
 
 @app.post("/v1/query")
