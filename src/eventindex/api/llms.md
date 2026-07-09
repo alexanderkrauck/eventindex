@@ -60,6 +60,17 @@ excluded - use sparingly, most events have estimated attributes only).
 `vibe_terms`: free descriptive words ("dance", "cozy") - rank-only, never
 filter.
 
+Fine print an agent should know:
+- Window filters compare `starts_at` only; a null `ends_at` is unknown and
+  plays no role in filtering.
+- `price_min = 0` means stated-free; `price_min = null` means unknown (the
+  `is_free` filter matches only stated-free).
+- `match_score` orders results; it is NOT a percentage. Certainties are
+  capped (0.8) and unknowns score a 0.45 prior, so an excellent real-world
+  fit typically lands around 0.4-0.7. Compare within a result set.
+- Rows carry `venue_name`/`venue_address` when known; `lat`/`lon` are only
+  set from real venue/claim locations, never guessed.
+
 Example - "tonight, no techno, mostly-female crowd matters a lot, kids ok":
 
 ```json

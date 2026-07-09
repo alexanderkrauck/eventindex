@@ -220,3 +220,30 @@ def test_staleness_decay_is_computed_at_query_time(conn):
         if o["title"] == "Zombie Stammtisch"
     )
     assert 0.55 < served["confidence"] < 0.65  # 0.9 × 0.9^4
+
+
+def test_event_detail_serializes_enriched_events(conn, client):
+    """int4range/interval columns 500ed the detail endpoint for every
+    enriched event (found by the first external consumer, 2026-07-09)."""
+    event_id = conn.execute("SELECT id FROM event LIMIT 1").fetchone()["id"]
+    conn.execute(
+        "UPDATE event SET expected_age_range = int4range(20, 30, '[]'), "
+        "expected_cadence = interval '7 days' WHERE id = %s", (event_id,),
+    )
+    conn.commit()
+    resp = client.get(f"/v1/events/{event_id}")
+    assert resp.status_code == 200
+    assert resp.json()["event"]["expected_age_range"] == "[20, 31)"
+
+
+def test_query_rows_carry_venue(conn, client):
+    vid = conn.execute(
+        "INSERT INTO venue (name, address) VALUES ('Posthof', 'Posthofstr. 43') "
+        "RETURNING id"
+    ).fetchone()["id"]
+    conn.execute("UPDATE event SET venue_id = %s WHERE title = 'Nearby Concert'", (vid,))
+    conn.commit()
+    rows = client.post("/v1/query", json={}).json()["occurrences"]
+    concert = next(r for r in rows if r["title"] == "Nearby Concert")
+    assert concert["venue_name"] == "Posthof"
+    assert concert["venue_address"] == "Posthofstr. 43"

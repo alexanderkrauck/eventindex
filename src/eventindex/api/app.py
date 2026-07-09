@@ -70,7 +70,9 @@ def llms_txt():
     text = (Path(__file__).parent / "llms.md").read_text()
     return Response(
         text.replace("{categories}", ", ".join(config.CATEGORIES)),
-        media_type="text/markdown",
+        # text/plain per the llms.txt convention: some agent fetchers return
+        # empty bodies for text/markdown (found by the first consumer)
+        media_type="text/plain; charset=utf-8",
     )
 
 
@@ -180,10 +182,12 @@ def occurrences(
         SELECT o.id, o.event_id, o.starts_at, o.ends_at, o.status, o.projected,
                o.availability, o.last_confirmed_at,
                e.title, e.category, e.price_min, e.price_max, e.url,
+               v.name AS venue_name, v.address AS venue_address,
                ({_EFFECTIVE_CONFIDENCE_SQL}) AS confidence,
                ST_Y(e.geo) AS lat, ST_X(e.geo) AS lon,
                ({_PROVENANCE_SQL}) AS provenance_summary
         FROM occurrence o JOIN event e ON e.id = o.event_id
+        LEFT JOIN venue v ON v.id = e.venue_id
         WHERE {" AND ".join(conditions)}
         ORDER BY o.starts_at, o.id
         LIMIT %(limit)s
@@ -272,6 +276,7 @@ def _run_filters(filters, limit: int,
             SELECT o.id, o.event_id, o.starts_at, o.ends_at, o.status,
                    o.projected,
                    e.title, e.category, e.price_min, e.price_max, e.url,
+                   v.name AS venue_name, v.address AS venue_address,
                    e.inferred->'vibe_tags' AS vibe_tags,
                    e.expected_age_range AS age_range,
                    ({_EFFECTIVE_CONFIDENCE_SQL}) AS confidence,
@@ -279,6 +284,7 @@ def _run_filters(filters, limit: int,
                    ({_PROVENANCE_SQL}) AS provenance_summary,
                    {attribute_select()}
             FROM occurrence o JOIN event e ON e.id = o.event_id
+            LEFT JOIN venue v ON v.id = e.venue_id
             WHERE {where}
             ORDER BY o.starts_at LIMIT %(limit)s
             """,
@@ -355,6 +361,10 @@ def event(event_id: UUID):
         if row is None:
             raise HTTPException(404, "event not found")
         del row["geo"], row["vibe_embedding"]
+        # int4range is not JSON-serializable - enriched events 500ed here
+        # (found by the first external consumer, 2026-07-09)
+        if row.get("expected_age_range") is not None:
+            row["expected_age_range"] = str(row["expected_age_range"])
         occurrences = conn.execute(
             "SELECT id, starts_at, ends_at, status, projected, availability, "
             "last_confirmed_at FROM occurrence WHERE event_id = %s "

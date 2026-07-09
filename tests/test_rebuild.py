@@ -367,3 +367,17 @@ def test_text_recurrence_verified_at_birth(conn, monkeypatch):
         "SELECT recurrence FROM text_recurrence WHERE content_key = %s", (key,)
     ).fetchone()
     assert cached is not None and cached["recurrence"] is None  # rejected for good
+
+
+def test_source_fallback_geo_is_never_published(conn):
+    """Blocking may use the aggregator's own point; the API must not - three
+    unrelated events at identical 'downtown' coords is silent wrong data."""
+    sid = _source(conn, "aggregator-geo", 0.9)  # source HAS geo
+    _claim(conn, sid, {"title": ("Geheimnisvolle Lesung", 0.9),
+                       "starts_at": ("2026-07-20T19:00:00+02:00", 0.9)},
+           "lesung geo|2026-07-20|x")  # no venue, no coords
+    rb.rebuild(conn, now=NOW)
+    row = conn.execute(
+        "SELECT geo IS NULL AS no_geo FROM event WHERE title = 'Geheimnisvolle Lesung'"
+    ).fetchone()
+    assert row["no_geo"]  # unknown stays unknown, not the source's point

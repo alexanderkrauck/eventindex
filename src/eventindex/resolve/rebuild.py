@@ -65,6 +65,10 @@ class Claim:
     venue_id: uuid.UUID | None = None
     lat: float | None = None
     lon: float | None = None
+    # True when lat/lon fell back to the SOURCE's geo (an aggregator's own
+    # point): fine for blocking, must never be published as the event's
+    # location - null means unknown, never "roughly downtown"
+    geo_source_fallback: bool = False
 
     def value(self, key):
         entry = self.payload.get(key)
@@ -167,6 +171,7 @@ def _resolve_venues(tx, claims: list[Claim]) -> VenueResolver:
             c.lat, c.lon = venue_geo[c.venue_id]
         if c.lat is None and c.source_lat is not None:
             c.lat, c.lon = c.source_lat, c.source_lon
+            c.geo_source_fallback = True
     return resolver
 
 
@@ -732,7 +737,11 @@ def rebuild(conn, now: datetime | None = None) -> dict:
             is_series = bool(g["key"].startswith("series|"))
             rep = max(g["claims"], key=lambda c: (c.trust, str(c.id)))
             event_status = "tentative" if tentative else "confirmed"
-            lat, lon = rep.lat, rep.lon
+            # publish only real locations (claim or venue geo); the source-
+            # fallback point exists for blocking, not for the API - three
+            # unrelated events at the aggregator's own coordinates was how
+            # the first external consumer caught this (2026-07-09)
+            lat, lon = (None, None) if rep.geo_source_fallback else (rep.lat, rep.lon)
             if rep.venue_id is None and _is_private_intent(
                 values.get("address"), values.get("organizer")
             ):
