@@ -1,4 +1,6 @@
-# Linz Event Index
+# Wasup — Linz Event Index
+
+Live at: https://wasup.goedly.com (canonical home; wasup.at planned)
 
 An index of every public event in Linz, Austria (and ~25km around): concerts,
 theatre, sport courses, Vereine, markets, church fests, gym timetables - the

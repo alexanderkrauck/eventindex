@@ -43,7 +43,7 @@ _EFFECTIVE_CONFIDENCE_SQL = """
 
 # discovery surfaces stay open like /docs: they carry no data, only the
 # instructions an agent needs before it has a key
-_OPEN_PATHS = {"/llms.txt", "/.well-known/api-catalog"}
+_OPEN_PATHS = {"/llms.txt", "/.well-known/api-catalog", "/privacy"}
 
 
 def _require_api_key(request: Request) -> None:
@@ -72,6 +72,13 @@ def llms_txt():
         text.replace("{categories}", ", ".join(config.CATEGORIES)),
         media_type="text/markdown",
     )
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy():
+    """GDPR-facing policy; also a ChatGPT app-directory requirement."""
+    return Response((Path(__file__).parent / "privacy.md").read_text(),
+                    media_type="text/markdown")
 
 
 @app.get("/.well-known/api-catalog", include_in_schema=False)
