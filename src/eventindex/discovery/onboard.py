@@ -461,6 +461,11 @@ def _self_validate(recipe: Recipe, sample_titles: list[str], source, tx, job_id,
     trimmed.entry_urls = trimmed.entry_urls[:3]
     trimmed.pagination.max_pages = min(trimmed.pagination.max_pages, 3)
     trimmed.follow_detail = False
+    # validation measures the recipe's MECHANICS; early-stop optimizations
+    # sabotage the measurement (all_fingerprints_seen halted validation on
+    # page 1 because the previous broken recipe had claimed exactly that
+    # page daily - the coverage gate then read '1 page fetched', 2026-07-11)
+    trimmed.stop_conditions = []
     payloads, validation = run_recipe(trimmed, source, tx, job_id=job_id)
     if expected_events and validation.ok and payloads:
         # coverage gate: hold the recipe against the agent's OWN yield

@@ -192,3 +192,25 @@ def test_coverage_gate_trusts_measurement_over_plan(conn, monkeypatch):
     _, error = ob._self_validate(r, ["E1"], {"id": None}, conn, None,
                                  expected_events=1100)
     assert error is None  # fully-measured pagination extrapolates honestly
+
+
+def test_validation_ignores_stop_conditions(conn, monkeypatch):
+    """all_fingerprints_seen halted a validation crawl on page 1 (the old
+    broken recipe had claimed exactly that page daily) and the coverage
+    gate read '1 page fetched' for a working recipe (2026-07-11)."""
+    from eventindex.discovery import onboard as ob
+    from eventindex.fetch.recipe import Pagination, Recipe, ValidationResult
+
+    seen = {}
+
+    def fake_run(trimmed, *a, **k):
+        seen["stops"] = list(trimmed.stop_conditions)
+        return ([{"title": {"value": "E"}, "starts_at": {"value": "2030-01-01"}}] * 5,
+                ValidationResult(ok=True, items=5, reasons=[], pages=3))
+
+    monkeypatch.setattr(ob, "run_recipe", fake_run)
+    r = Recipe(entry_urls=["https://x.at/e"], pagination=Pagination(type="none"),
+               stop_conditions=["all_fingerprints_seen", "date_older_than_now"])
+    ob._self_validate(r, ["E"], {"id": None}, conn, None)
+    assert seen["stops"] == []
+    assert r.stop_conditions == ["all_fingerprints_seen", "date_older_than_now"]
