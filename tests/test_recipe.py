@@ -270,3 +270,27 @@ def test_nested_llm_wrapped_arrays_are_unwrapped():
         validation={"required_fields": {"item": {"item": ["title", "starts_at"]}}},
     )
     assert r.validation.required_fields == ["title", "starts_at"]
+
+
+def test_stop_conditions_skip_to_next_window(conn):
+    """date_older_than_now/all_seen end one listing walk, never the whole
+    crawl: a chunked-window recipe has more windows in the queue whose
+    content the current one says nothing about (2026-07-11)."""
+    past = """
+    <html><body><div class="event"><h3><a href="/e/9">Alte Messe</a></h3>
+    <span class="date">2020-01-01 10:00</span></div>
+    <div class="event"><h3><a href="/e/8">Alter Markt</a></h3>
+    <span class="date">2020-01-02 10:00</span></div>
+    <div class="event"><h3><a href="/e/7">Altes Fest</a></h3>
+    <span class="date">2020-01-03 10:00</span></div></body></html>
+    """.encode()
+    pages = {"https://x.at/w1": past, "https://x.at/w2": LISTING}
+    r = _recipe(
+        entry_urls=["https://x.at/w1", "https://x.at/w2"],
+        pagination=Pagination(type="none"),
+        stop_conditions=["date_older_than_now"],
+    )
+    payloads, _ = run_recipe(r, {"id": None}, conn,
+                             fetch_page=lambda u: pages.get(u), now=NOW)
+    titles = [p["title"]["value"] for p in payloads]
+    assert "Sommerkonzert" in titles  # window 2 was still crawled

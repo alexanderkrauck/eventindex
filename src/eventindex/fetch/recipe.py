@@ -22,9 +22,11 @@ log = logging.getLogger("eventindex.recipe")
 # per-crawl hard caps (§cost-governance ring 1), recipe values are clamped.
 # Deliberately generous (completeness > thrift; per-source budgets are the
 # real governor): pagination depth must never be why we miss events.
-# 100: a portal paginating 15 items/page needs ~75 pages for its full
-# calendar (linztermine); dailies stop early via all_fingerprints_seen.
-MAX_PAGES_HARD = 100
+# 400: a portal whose recurring events occupy one row per date needs
+# ~250-350 pages for its full calendar in chunked date windows
+# (linztermine caps any single query at ~1134 rows, 2026-07-11); dailies
+# stop early via all_fingerprints_seen.
+MAX_PAGES_HARD = 400
 MAX_DETAIL_FETCHES = 60
 PAGINATION_TYPES = Literal[
     "url_param", "next_link", "next_click", "load_more_click",
@@ -347,7 +349,7 @@ def _crawl_pages(recipe, source, tx, job_id, fetch_page, queue, visited,
             truncated = (f"page cap {page_cap} dropped "
                          f"{len(states) - (page_cap - pages)} harvested states")
 
-        stop = False
+        skip_url = False
         for html in states[: max(page_cap - pages, 0)]:
             pages += 1
 
@@ -374,14 +376,16 @@ def _crawl_pages(recipe, source, tx, job_id, fetch_page, queue, visited,
 
             payloads += page_payloads
 
-            # stop conditions
+            # stop conditions: they end THIS listing walk, never the whole
+            # crawl - a chunked-window recipe has more windows in the queue
+            # whose content the current one says nothing about (2026-07-11)
             if "date_older_than_now" in recipe.stop_conditions and page_payloads:
                 dates = [
                     parse_dt(p["starts_at"]["value"]) for p in page_payloads if "starts_at" in p
                 ]
                 dates = [d for d in dates if d]
                 if dates and max(dates) < (now or datetime.now()).astimezone():
-                    stop = True
+                    skip_url = True
                     break
             if seen_fps is not None and page_payloads:
                 # one fully-known page is NOT proof the rest is known: a
@@ -391,14 +395,15 @@ def _crawl_pages(recipe, source, tx, job_id, fetch_page, queue, visited,
                 if _all_seen(page_payloads, seen_fps, source):
                     seen_streak += 1
                     if seen_streak >= 3:
-                        stop = True
+                        skip_url = True
                         break
                 else:
                     seen_streak = 0
             if (nxt := next_url(recipe, html, url)) is not None:
                 queue.append(nxt)
-        if stop:
-            return payloads, truncated, pages
+        if skip_url:
+            seen_streak = 0
+            continue
 
     if queue and any(u not in visited for u in queue):
         # the loop ended on page_cap, not on an empty queue: pre-expanded
