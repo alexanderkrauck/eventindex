@@ -358,21 +358,33 @@ def _group_claims(tx, claims: list[Claim], venue_notes: list[str]) -> list[dict]
         if any(c.venue_id for c in g["claims"]):
             with_venue[normalize_title(g["claims"][0].title)].append(key)
 
-    def _venue_twin_target(ntitle: str, days: set) -> dict | None:
+    def _venue_twin_target(ntitle: str, days: set,
+                           rec: Recurrence | None) -> dict | None:
         owners = with_venue.get(ntitle, [])
         if len(owners) != 1:
             return None
         target = groups.get(owners[0])
-        if target is None or not (days & _days(target["claims"])):
+        if target is None:
             return None
-        return target
+        if days & _days(target["claims"]):
+            return target
+        # portals emit ONE row per date of a weekly course, venue present
+        # on some rows only: disjoint observed days, identical rule - that
+        # rule IS the corroboration (prod: Basic Training, 2026-07-13)
+        t_rec = target["recurrence"]
+        if (rec is not None and t_rec is not None
+                and (rec.freq, rec.weekday, rec.time)
+                == (t_rec.freq, t_rec.weekday, t_rec.time)):
+            return target
+        return None
 
     for key in list(groups):
         g = groups[key]
         if any(c.venue_id for c in g["claims"]):
             continue
         target = _venue_twin_target(
-            normalize_title(g["claims"][0].title), _days(g["claims"])
+            normalize_title(g["claims"][0].title), _days(g["claims"]),
+            g["recurrence"],
         )
         if target is not None and target is not g:
             target["claims"].extend(g["claims"])
@@ -386,6 +398,7 @@ def _group_claims(tx, claims: list[Claim], venue_notes: list[str]) -> list[dict]
             target = _venue_twin_target(
                 normalize_title(c.title),
                 {c.starts_at.astimezone(VIENNA).date()},
+                None,
             )
         if target is not None:
             target["claims"].append(c)

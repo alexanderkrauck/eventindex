@@ -587,3 +587,24 @@ def test_venueless_singleton_with_foreign_dates_stays_apart(conn):
     rb.rebuild(conn, now=NOW)
     events, _ = _canon(conn)
     assert len(events) == 2
+
+
+def test_venueless_twin_with_disjoint_dates_but_same_rule_merges(conn):
+    """Prod 2026-07-13: MeinBezirk emits one row per date of a weekly
+    course; venue present on some rows only. Disjoint observed days,
+    identical rule -> one series."""
+    rec = dict(_SOMMER_REC, weekday="FR", time="19:15",
+               as_stated="jeden Freitag 19:15")
+    sid = _source(conn, "meinbezirk", 0.4)
+    _claim(conn, sid, _concert("Basic Training in Standard- und Lateintänzen",
+                               starts="2026-07-10T19:15:00+02:00",
+                               venue="Sportunion Tanzsportklub",
+                               recurrence=(rec, 0.9)),
+           "basic training standard lateintaenzen|2026-07-10|")
+    f = _concert("Basic Training in Standard- und Lateintänzen",
+                 starts="2026-07-17T19:15:00+02:00", recurrence=(rec, 0.9))
+    del f["venue_name"]
+    _claim(conn, sid, f, "basic training standard lateintaenzen|2026-07-17|")
+    rb.rebuild(conn, now=NOW)
+    events, _ = _canon(conn)
+    assert len(events) == 1
