@@ -718,13 +718,25 @@ def _event_detail(event_id: UUID, *, include_policy_marker: bool = False) -> dic
         ).fetchall()
         sources = conn.execute(
             """
-            SELECT s.name, s.url, max(c.extracted_at) AS extracted_at
-            FROM identity i
-            JOIN event_claim c ON c.fingerprint = i.fingerprint
-            JOIN source s ON s.id = c.source_id
-            WHERE i.event_id = %s AND s.kind <> 'internal'
-            GROUP BY s.id, s.name, s.url
-            ORDER BY max(c.extracted_at) DESC
+            SELECT name, url, extracted_at
+            FROM (
+                SELECT DISTINCT ON (s.id)
+                       s.name,
+                       CASE
+                           WHEN c.payload->'url'->>'value' ~* '^https?://'
+                           THEN c.payload->'url'->>'value'
+                           ELSE s.url
+                       END AS url,
+                       max(c.extracted_at) OVER (PARTITION BY s.id) AS extracted_at
+                FROM identity i
+                JOIN event_claim c ON c.fingerprint = i.fingerprint
+                JOIN source s ON s.id = c.source_id
+                WHERE i.event_id = %s AND s.kind <> 'internal'
+                ORDER BY s.id,
+                         (c.payload->'url'->>'value' ~* '^https?://') DESC,
+                         c.extracted_at DESC
+            ) AS latest_per_source
+            ORDER BY extracted_at DESC
             """,
             (event_id,),
         ).fetchall()

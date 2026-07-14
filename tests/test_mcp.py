@@ -289,6 +289,10 @@ def test_event_detail_never_returns_raw_claim_payload(conn, client):
         "VALUES (%s, %s, %s, %s)",
         (source_id, fingerprint, "SECRET PRIVATE ADDRESS", Jsonb({
             "address": {"value": "SECRET PRIVATE ADDRESS", "confidence": 1},
+            "url": {
+                "value": "https://source.example/events/correct-event",
+                "confidence": 1,
+            },
         })),
     )
     conn.execute(
@@ -304,6 +308,8 @@ def test_event_detail_never_returns_raw_claim_payload(conn, client):
     mcp_detail = _call(client, "get_event", {"event_id": str(event_id)})
     assert "SECRET PRIVATE ADDRESS" not in json.dumps(mcp_detail)
     assert mcp_detail["sources"][0]["name"] == "Public Source"
+    assert mcp_detail["sources"][0]["url"] == \
+        "https://source.example/events/correct-event"
     assert len(mcp_detail["event"]["estimates"]["vibe_tags"]) == 6
     public_detail = client.get(f"/v1/events/{event_id}").json()
     assert "claims" not in public_detail
