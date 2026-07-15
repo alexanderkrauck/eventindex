@@ -3,7 +3,7 @@ name = "eventindex"
 version = "0.1.0"
 description = "Linz event index - crawl, extract, resolve, serve"
 authors = [
-    { name = "Alexander Krauck", email = "alexander.krauck@gmail.com" }
+    { name = "Alexander Krauck", email = "alexander@business.goedly.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [

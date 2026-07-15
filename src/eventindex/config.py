@@ -85,7 +85,7 @@ JOB_STALE_RUNNING_S = 4 * 3600
 WORKER_IDLE_POLL_S = 5
 
 # Crawl politeness
-USER_AGENT = "EventIndexBot/0.1 (+alexander.krauck@gmail.com)"
+USER_AGENT = "EventIndexBot/0.1 (+alexander@business.goedly.com)"
 CRAWL_DELAY_S = 2.0  # DECISIONS.md: per-domain rate limit >= 2s
 
 # Discovery: sweeps skip domains rejected by a probe within this window

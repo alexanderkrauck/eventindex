@@ -130,4 +130,4 @@ and a takedown contact. Public event data only.
 
 Live for Linz (~1,500 events, ~3,000 upcoming occurrences, ~200 sources);
 built for multi-city from day one. **All rights reserved** — the code is
-public to read; talk to me about using it: alexander.krauck@gmail.com
+public to read; talk to me about using it: alexander@business.goedly.com
