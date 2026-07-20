@@ -1,0 +1,51 @@
+{
+  "Page": 1,
+  "Size": 25,
+  "Top": 25,
+  "PastEvents": false,
+  "Categories": [
+    {"Title": "Legal", "Id": 362643281, "IdString": "362643281"},
+    {"Title": "Community", "Id": 362643282, "IdString": "362643282"}
+  ],
+  "Category": null,
+  "CalendarEvents": [
+    {
+      "Id": 1415748758,
+      "Name": "WORKSHOP - Sag was Sache ist!",
+      "StartDate": "2030-08-07T10:00:00",
+      "EndDate": "2030-08-07T17:00:00",
+      "Location": "factory300, Peter-Behrens-Platz 10",
+      "ShortDescription": "<p>Klar kommunizieren im Startup-Alltag &amp; dar&uuml;ber hinaus.</p>",
+      "HostFullName": "factory300 Team",
+      "ChepeastPrice": 49.0,
+      "HasTickets": true,
+      "AttendeeCount": 0,
+      "Attendees": [],
+      "EventCategories": [{"Title": "Community", "Id": 362643282}]
+    },
+    {
+      "Id": 1415748759,
+      "Name": "Community Oktoberfest",
+      "StartDate": "2030-10-01T18:00:00",
+      "EndDate": "2030-10-01T22:00:00",
+      "Location": "factory300 Rooftop",
+      "ShortDescription": "O'zapft is im Coworking.",
+      "HostFullName": null,
+      "ChepeastPrice": null,
+      "HasTickets": false,
+      "Attendees": [],
+      "EventCategories": []
+    },
+    {
+      "Id": 1415748760,
+      "Name": "After-Work-Beer mit tech2b",
+      "StartDate": "2030-09-10T17:00:00",
+      "EndDate": "2030-09-10T19:00:00",
+      "Location": null,
+      "ShortDescription": null,
+      "HostFullName": "tech2b Inkubator",
+      "Attendees": [],
+      "EventCategories": []
+    }
+  ]
+}

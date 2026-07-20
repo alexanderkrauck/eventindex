@@ -1,11 +1,12 @@
 """Extraction cascade (§3.3): stop at the first tier that yields events.
 
-  a. JSON-LD schema.org/Event   (free, precise)
-  b. ICS / RSS                  (free, precise)
-  c. LLM on readable page text  (mini model, structured output)
+  a. JSON API record sniffing   (free, precise; fence fired 2026-07-20)
+  b. JSON-LD schema.org/Event   (free, precise)
+  c. ICS / RSS                  (free, precise)
+  d. PDF text -> LLM            (fence fired 2026-07-20)
+  e. LLM on readable page text  (mini model, structured output)
 
 Every tier emits claim payloads: {field: {"value": ..., "confidence": float}}.
-Vision/PDF (tier d) is out of v1 scope.
 """
 
 import html as _html
@@ -16,7 +17,7 @@ from zoneinfo import ZoneInfo
 from dateutil import parser as dateparser
 
 from eventindex import config
-from eventindex.extract import ics, jsonld, linztermine, llm_text, rss
+from eventindex.extract import ics, json_api, jsonld, linztermine, llm_text, rss
 
 VIENNA = ZoneInfo(config.TIMEZONE)
 
@@ -209,6 +210,13 @@ def extract(source: dict, result, tx, job_id=None) -> tuple[str, list[dict]]:
     """Run the cascade. Returns (method, claim payloads), past events dropped."""
     ct = result.content_type.lower()
     kind = source["kind"]
+
+    # body sniff, not content-type: recipe fetches fake text/html, and SPA
+    # platforms serve JSON under whatever header. XML/ICS bodies never start
+    # like JSON, so the legacy branches below are unaffected.
+    if "json" in ct or result.content.lstrip()[:1] in (b"{", b"["):
+        if claims := json_api.parse(result.content):
+            return "json_api", sanity_filter(claims, source)
 
     if kind == "api":
         # the only v1 API source is the linztermine XML export; a second API
