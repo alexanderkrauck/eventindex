@@ -24,6 +24,12 @@ include the act: "Klassik am Dom: Tom Jones". If a listing gives no \
 identifiable title at all, skip it.
 - ONE event per happening: if a listing shows Einlass/doors AND Beginn/start, \
 emit a single event with starts_at = Beginn (never two events for one show).
+- Reopening/offer announcements are NOT events: "Wiedereröffnung - Touren ab \
+13. Juli", "jetzt wieder geöffnet", "neue Öffnungszeiten" describe an ongoing \
+offering. Only a specific dated celebration ("Wiedereröffnungsfeier am 5.9.") \
+is an event.
+- Ausstellungen (exhibitions): starts_at = opening date, ends_at = closing \
+date ("bis 12.10.") when stated - the RANGE, never an arbitrary day mid-run.
 - Copy titles VERBATIM (film titles: never add or drop version markers like \
 OmdtU/DF yourself - keep exactly what the page shows).
 - starts_at/ends_at: ISO 8601. If no time given, use the date alone (YYYY-MM-DD). \

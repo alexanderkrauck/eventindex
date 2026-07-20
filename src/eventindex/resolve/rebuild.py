@@ -223,7 +223,54 @@ def _recurrence_of(c: Claim) -> Recurrence | None:
         # The schema also cannot represent "daily except Tue/Sat"; expanding
         # that as all seven days is knowingly wrong, so it fails closed too.
         return None
+    return _reconcile_titled_weekday(rec, c)
+
+
+def _title_weekday(title: str) -> str | None:
+    """The single weekday a title names ('Wochentagsmesse - Freitag',
+    'Sonntagsbrunch'), or None when there is none or several. Full German
+    weekday words only - abbreviations ('So.') collide with real words."""
+    found = {m.group(1).lower()
+             for m in _TITLE_WEEKDAY_RE.finditer(title or "")}
+    if len(found) == 1:
+        return _TITLE_WD_CODE[found.pop()]
+    return None
+
+
+def _reconcile_titled_weekday(rec: Recurrence | None,
+                              c: Claim) -> Recurrence | None:
+    """Red team 2026-07-20: a Freitag-titled parish mass carried freq=daily
+    ('täglich in Christkönig' describes the WHOLE weekday-mass group on the
+    page) and served Tuesday occurrences under a Friday title. The rule's
+    consistency check compares against as_stated, which never sees the
+    title - this deterministic gate does. A weekday-titled series is that
+    weekday's series: daily coerces to weekly on it (when the claim's own
+    date agrees), a contradicting weekly rule fails closed."""
+    if rec is None:
+        return None
+    titled = _title_weekday(c.title)
+    if titled is None or rec.freq in ("once", "irregular"):
+        return rec
+    claim_wd = (_WD_CODES[c.starts_at.astimezone(VIENNA).weekday()]
+                if c.starts_at else None)
+    if rec.freq == "daily":
+        if claim_wd == titled:
+            return rec.model_copy(update={"freq": "weekly", "weekday": titled})
+        return None  # title and anchor disagree: no basis to expand anything
+    if rec.weekday is None and claim_wd == titled:
+        return rec.model_copy(update={"weekday": titled})
+    if rec.weekday is not None and rec.weekday != titled:
+        return None  # rule contradicts the titled weekday: fail closed
     return rec
+
+
+_TITLE_WEEKDAY_RE = re.compile(
+    r"\b(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)e?s?\b",
+    re.IGNORECASE,
+)
+_TITLE_WD_CODE = {"montag": "MO", "dienstag": "TU", "mittwoch": "WE",
+                  "donnerstag": "TH", "freitag": "FR", "samstag": "SA",
+                  "sonntag": "SU"}
 
 
 _DAILY_CADENCE_RE = re.compile(

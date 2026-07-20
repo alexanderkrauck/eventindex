@@ -447,7 +447,12 @@ def _qa_source_id(tx):
 
 def _qa_verify(tx, occ: dict, job_id) -> str:
     """Re-fetch the event's URL and ask a mini model whether the occurrence
-    still stands. Checking is easier than extracting (H1.1 logic)."""
+    still stands. Checking is easier than extracting (H1.1 logic).
+
+    QA v2 (red team 2026-07-20): the verdict must also hold venue/time when
+    the page shows them (a dense list page must not 'confirm' a market at
+    the wrong venue with the wrong hours), and a JS page whose static text
+    lacks the title gets one headless render before ruling not_found."""
     import time
 
     import httpx
@@ -466,17 +471,29 @@ def _qa_verify(tx, occ: dict, job_id) -> str:
     except httpx.HTTPError:
         return "not_found"
 
+    text = html_to_text(resp.content)
+    title_head = (occ["title"] or "")[:25].lower()
+    if title_head and title_head not in text.lower():
+        from eventindex.fetch.headless import render_page
+
+        rendered = render_page(occ["url"])
+        if rendered:
+            text = html_to_text(rendered)
+
     local = occ["starts_at"].astimezone(VIENNA)
+    venue_line = (f" at '{occ['venue_name']}'" if occ.get("venue_name") else "")
     return llm.complete(
         tx,
         f"Below is the text of {occ['url']}.\n"
         f"Does this page still show the event '{occ['title']}' taking place "
-        f"on {local:%Y-%m-%d} (around {local:%H:%M})?\n"
-        "Answer 'confirmed' if the event on that date is still listed as "
-        "happening; 'cancelled' if it is explicitly cancelled or moved "
-        "(abgesagt, verschoben, entfällt, ausverkauft is NOT cancelled); "
-        "'not_found' if the event or that date no longer appears.\n\n"
-        f"PAGE TEXT:\n{html_to_text(resp.content)[:8000]}",
+        f"on {local:%Y-%m-%d} (around {local:%H:%M}){venue_line}?\n"
+        "Answer 'confirmed' only if the event on that date is still listed "
+        "as happening AND, where the page states them, its venue and time "
+        "are consistent with the ones above; 'cancelled' if it is "
+        "explicitly cancelled or moved (abgesagt, verschoben, entfällt - "
+        "ausverkauft is NOT cancelled); 'not_found' if the event, that "
+        "date, or that venue no longer appears as described.\n\n"
+        f"PAGE TEXT:\n{text[:8000]}",
         QAVerdict,
         job_id=job_id,
     ).outcome
@@ -511,8 +528,10 @@ def qa_check(job: dict, tx) -> list[dict]:
     canon (H0)."""
     payload = job["payload"]
     base_sql = (
-        "SELECT o.id, o.event_id, o.starts_at, e.title, e.url "
+        "SELECT o.id, o.event_id, o.starts_at, e.title, e.url, "
+        "v.name AS venue_name "
         "FROM occurrence o JOIN event e ON e.id = o.event_id "
+        "LEFT JOIN venue v ON v.id = e.venue_id "
     )
     if payload.get("occurrence_id"):
         occs = tx.execute(
@@ -520,18 +539,42 @@ def qa_check(job: dict, tx) -> list[dict]:
             (payload["occurrence_id"],),
         ).fetchall()
     else:
+        sample = payload.get("sample", config.QA_NIGHTLY_SAMPLE)
+        projected_share = max(1, sample // 5)
         occs = tx.execute(
             base_sql + "WHERE o.starts_at BETWEEN now() AND now() + interval "
             "'14 days' AND o.status = 'scheduled' AND NOT o.projected "
             "AND e.url IS NOT NULL ORDER BY random() LIMIT %s",
-            (payload.get("sample", config.QA_NIGHTLY_SAMPLE),),
+            (sample - projected_share,),
+        ).fetchall()
+        # QA v2: projections were never verified - which is how a source's
+        # announced schedule change or a summer-paused course drifts
+        # silently (red team 2026-07-20). A fifth of the sample looks 2-8
+        # weeks ahead at projected occurrences.
+        occs += tx.execute(
+            base_sql + "WHERE o.starts_at BETWEEN now() + interval '14 days' "
+            "AND now() + interval '56 days' AND o.status = 'scheduled' "
+            "AND o.projected AND e.url IS NOT NULL ORDER BY random() LIMIT %s",
+            (projected_share,),
         ).fetchall()
 
     qa_sid = _qa_source_id(tx)
     counts = {"confirmed": 0, "cancelled": 0, "not_found": 0}
+    not_found_sources: dict = {}
     for occ in occs:
         outcome = _qa_verify(tx, occ, job["id"])
         counts[outcome] += 1
+        if outcome == "not_found":
+            src = tx.execute(
+                "SELECT c.source_id FROM identity i "
+                "JOIN event_claim c ON c.fingerprint = i.fingerprint "
+                "JOIN source s ON s.id = c.source_id "
+                "WHERE i.event_id = %s AND s.kind <> 'internal' "
+                "ORDER BY s.trust DESC LIMIT 1", (occ["event_id"],),
+            ).fetchone()
+            if src:
+                key = src["source_id"]
+                not_found_sources[key] = not_found_sources.get(key, 0) + 1
         accuracy = 1.0 if outcome == "confirmed" else 0.0
         tx.execute(
             "UPDATE source SET trust = trust * (1 - %(a)s) + %(a)s * %(acc)s "
@@ -560,7 +603,23 @@ def qa_check(job: dict, tx) -> list[dict]:
          f"qa: checked={len(occs)} confirmed={counts['confirmed']} "
          f"cancelled={counts['cancelled']} not_found={counts['not_found']}"),
     )
-    return [{"kind": "resolve", "payload": {}}] if counts["cancelled"] else []
+    jobs = [{"kind": "resolve", "payload": {}}] if counts["cancelled"] else []
+    # QA v2: a source whose events keep vanishing from their pages has
+    # moved or restructured them - the agent finds where they went
+    # (red team: Nierenstammtisch relocated from /linz to /wels)
+    for source_id, n in not_found_sources.items():
+        if n < 3:
+            continue
+        src = tx.execute("SELECT extraction_hint FROM source WHERE id = %s",
+                         (source_id,)).fetchone()
+        if src and _agent_cooldown_over(src["extraction_hint"] or {}):
+            jobs.append({"kind": "agent_extract", "payload": {
+                "source_id": str(source_id),
+                "reason": (f"qa drift: {n} of this source's occurrences no "
+                           "longer appear on their recorded pages - find "
+                           "where the events moved and re-extract"),
+            }})
+    return jobs
 
 
 def parity_audit(job: dict, tx) -> list[dict]:
@@ -623,9 +682,13 @@ def parity_audit(job: dict, tx) -> list[dict]:
             prior = (source["extraction_hint"] or {}).get("onboard_notes") or []
             note = ("parity audit found events the recipe misses: "
                     + ", ".join(missing_titles[:5]))[:500]
+            # a proven coverage miss re-arms the one-shot escalation fuses:
+            # the completeness/venue contracts may fire again on evidence
             tx.execute(
-                "UPDATE source SET extraction_hint = coalesce(extraction_hint,"
-                "'{}'::jsonb) || jsonb_build_object('onboard_notes', %s::jsonb) "
+                "UPDATE source SET extraction_hint = "
+                "((coalesce(extraction_hint,'{}'::jsonb) "
+                "- 'completeness_escalated') - 'venue_escalated') "
+                "|| jsonb_build_object('onboard_notes', %s::jsonb) "
                 "WHERE id = %s",
                 (Jsonb(([note] + prior)[:3]), source["id"]),
             )

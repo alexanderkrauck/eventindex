@@ -129,11 +129,15 @@ def normalize_claim(payload: dict) -> dict:
     return payload
 
 
-# closures/holiday notices/program pointers are not events (audit A23)
+# closures/holiday notices/program pointers/announcements are not events
+# (audit A23; red team 2026-07-20: "Wiedereröffnung ... Touren ab 13. Juli"
+# served as a future event. German compounding keeps this safe: a real
+# "Wiedereröffnungsfeier" is one word and never matches \bwiedereröffnung\b).
 _NON_EVENT_RE = re.compile(
     r"(sommerferien|weihnachtsferien|semesterferien|ferienbeginn|schulfrei"
     r"|hinweis auf|öffnungszeiten|betriebsurlaub|geschlossen|entfällt"
-    r"|kein training|kein kurs|keine probe)",
+    r"|kein training|kein kurs|keine probe"
+    r"|\bwiedereröffnung\b|\bneueröffnung\b|jetzt (wieder )?geöffnet)",
     re.IGNORECASE,
 )
 
