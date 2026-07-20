@@ -130,6 +130,9 @@ def escalate_broken(conn) -> int:
 
 SELFHEAL_RETRY_DAYS = 7
 SELFHEAL_MAX_ATTEMPTS = 4
+SELFHEAL_PER_TICK = 5  # 98 degraded sources enqueued 47 agent sessions in
+                       # one sweep (2026-07-20); productive sources first,
+                       # junk drains slowly inside the same budget rings
 
 
 def retry_degraded(conn) -> int:
@@ -151,8 +154,10 @@ def retry_degraded(conn) -> int:
                      OR coalesce(j.finished_at, j.created_at)
                         > now() - %(days)s * interval '1 day')
           )
+        ORDER BY s.yield_ema DESC NULLS LAST
+        LIMIT %(cap)s
         """,
-        {"days": SELFHEAL_RETRY_DAYS},
+        {"days": SELFHEAL_RETRY_DAYS, "cap": SELFHEAL_PER_TICK},
     ).fetchall()
     retried = 0
     for r in rows:
